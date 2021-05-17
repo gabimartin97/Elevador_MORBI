@@ -19,6 +19,9 @@
 #define timeout_Fc_Inf 4000		//Tiempo en el que busca el final de carrera inferior
 #define tiempoDescarga 2000		//Tiempo de reposo de la descarga superior
 
+#define delayGralPulsadores 50
+#define delayPulsadorUpDwn 50
+
 static const uint32_t rampa[10]= {10,1,1,1,1,1,1,1,1,0};
 
 

@@ -99,7 +99,7 @@ static void LecturaPulsadores (void *p_arg)
 	menuState=ModoAut;								//Con este estado arranca el programa
 	while(DEF_TRUE)
 	{
-		OSTimeDlyHMSM(0, 0, 0, 25u); 				//Tiempo de lectura: 100ms
+		OSTimeDlyHMSM(0, 0, 0, delayGralPulsadores); 				//Tiempo de lectura
 
 		/***************************PULSADOR MENU **************************************/
 		if(HAL_GPIO_ReadPin(GPIOB, PULSADOR1_Pin) == GPIO_PIN_RESET && !start)
@@ -175,7 +175,7 @@ static void LecturaPulsadores (void *p_arg)
 				OSTaskResume(APP_CFG_TASK2_PRIO); 		//Resume la tarea display
 				}
 
-			OSTimeDlyHMSM(0, 0, 0, 100u);				//Delay luego de pulsarlo
+			OSTimeDlyHMSM(0, 0, 0, delayPulsadorUpDwn);				//Delay luego de pulsarlo
 
 		}	//End if pulsador arriba
 		/***************************PULSADOR ARRIBA ************************************/
@@ -242,7 +242,7 @@ static void LecturaPulsadores (void *p_arg)
 				{
 				OSTaskResume(APP_CFG_TASK2_PRIO); 		//Resume la tarea display
 				}
-				OSTimeDlyHMSM(0, 0, 0, 100u);			//Delay luego de pulsarlo
+				OSTimeDlyHMSM(0, 0, 0, delayPulsadorUpDwn);			//Delay luego de pulsarlo
 
 			}
 			else //Si modo manual y no se está pulsando ni arriba ni abajo
@@ -319,6 +319,15 @@ static void ActualizarDisplay (void *p_arg)
 		  	case ModoAut:
 
 		  		print("Modo Automatico");
+		  		setCursor(0,1);
+		  		print("Piezas ");
+		  		sprintf(buffer,"%d",rejillasActuales);
+		  		print(buffer);
+		  		print("/");
+		  		sprintf(buffer,"%d",nRejillas);
+		  		print(buffer);
+
+
 		  		if (errorTimeoutSup)
 		  		{
 		  			setCursor(0,1);
@@ -341,7 +350,7 @@ static void ActualizarDisplay (void *p_arg)
 		  		break;
 		  	case CantRejillas:
 
-		  		print("Cant de Rejillas");
+		  		print("Cant de Piezas");
 		  		setCursor(0,1);
 		  		sprintf(buffer,"%d",nRejillas);
 		  		print(buffer);
@@ -374,7 +383,7 @@ static void ActualizarDisplay (void *p_arg)
 		  	}
 		  	if(start)
 		  	{
-		  		setCursor (7,1);
+		  		setCursor (12,1);
 		  		print("RUN");
 		  		blink();
 		  	}
@@ -548,6 +557,7 @@ static void Piezas (void *p_arg)
 		if(!mismaPieza && HAL_GPIO_ReadPin(GPIOB, Sensor_rejillas_Pin) && !rejillasReady)
 		{
 			rejillasActuales ++;
+			OSTaskResume(APP_CFG_TASK2_PRIO); 		//Resume la tarea display
 			mismaPieza = true;
 		}
 		else
@@ -560,7 +570,10 @@ static void Piezas (void *p_arg)
 
 		if (rejillasActuales >= nRejillas)
 		{
+			if (start)				//Solamente si estamos en run
+			{
 			rejillasReady = true;
+			}
 			rejillasActuales =0;
 		}
 
@@ -615,9 +628,10 @@ void CicloAutomatico()
 	/****************** Reset Errores ********************/
 
 	/********************** CICLO DE SUBIDA ***********************************/
-	if(start && HAL_GPIO_ReadPin(GPIOB, Fc_Inf_Pin))//if start y Fc inferior
+	if(start && HAL_GPIO_ReadPin(GPIOB, Fc_Inf_Pin) && rejillasReady)//if start y Fc inferior
+																	// Y estan las piezas
 	{
-
+		rejillasReady = false;						//Reinicia la variable rejillas
 		htim4.Instance->PSC = 1;					//Preescaler motor = 1.El motor recibe 1khz
 		GiroHorario();
 		OSTimeDly((uint32_t)tiempo1khz);			//Recorre 1/4 tramo a baja velocidad
@@ -633,13 +647,15 @@ void CicloAutomatico()
 
 		OSTimeDly(timeout_Fc_Sup);					//Timeout FC superior
 		halt = true;
-		if (!HAL_GPIO_ReadPin(GPIOB, Fc_Sup_Pin))   //Si no se alcanzó el final de carrera sup
+
+		/*if (!HAL_GPIO_ReadPin(GPIOB, Fc_Sup_Pin))   //Si no se alcanzó el final de carrera sup
 		{
 			errorTimeoutSup = true;
 			start = false;
 			OSTaskResume(APP_CFG_TASK2_PRIO); 		//Resume la tarea display
 
 		}
+		*/
 		if (!start || errorTimeoutSup ) return;
 		OSTimeDly(tiempoDescarga);
 		if (!start || errorTimeoutSup) return;
