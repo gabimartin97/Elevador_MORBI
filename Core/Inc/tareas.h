@@ -124,8 +124,16 @@ static void LecturaPulsadores (void *p_arg)
 					  		break;
 
 					  	case ModoMan:
-					  		giroHorario = false;
-					  		giroAntiHorario = true;
+					  		if (!HAL_GPIO_ReadPin(GPIOB, Fc_Sup_Pin)) // subo solo si no toco FC
+					  		{
+					  			giroHorario = true;
+					  			giroAntiHorario = false;
+					  		}
+					  		else
+					  		{
+					  			giroHorario = false;
+					  			giroAntiHorario = false;
+					  		}
 					  		break;
 
 
@@ -184,8 +192,16 @@ static void LecturaPulsadores (void *p_arg)
 								break;
 
 							case ModoMan:			//Si display muestra modo manual:
-								giroHorario = true;
-								giroAntiHorario = false;
+								if (!HAL_GPIO_ReadPin(GPIOB, Fc_Inf_Pin))
+								{						//Bajo solo si no toco el FC
+									giroHorario = false;
+									giroAntiHorario = true;
+								}
+								else
+								{
+									giroHorario = false;
+									giroAntiHorario = false;
+								}
 								break;
 
 
@@ -469,11 +485,9 @@ static void Detener (void *p_arg)
 
 /*
 *********************************************************************************************************
-*                                    Rampa (void *p_arg)
+*                                    FinalesDeCarrera (void *p_arg)
 *
-* Description :Esta tarea modifica el preescaler del timer 4 (PWM del motor)
-* 			   Para ir creando una rampa de aceleración / desaceleración del motor
-* 			   La tarea lleva al preescaler de 10 a 0 o de 0 a 10 y se autosuspende
+* Description :Esta tarea se encarga de leer los finales de carrera y detener el motor
 *
 * Argument(s) : p_arg       Argument passed to 'Rampa' by 'OSTaskCreate()'.
 *
@@ -485,35 +499,25 @@ static void Detener (void *p_arg)
 *********************************************************************************************************
 */
 
-static void Rampa (void *p_arg)
+static void FinalesDeCarrera (void *p_arg)
 {
 
 	while(DEF_TRUE)
 		{
-			if(htim4.Instance->PSC == 10)			//Si el preescaleer es 10
+			if(HAL_GPIO_ReadPin(GPIOB, Fc_Inf_Pin))
 			{
-				for(int i = 0; i< 10;i++)
-				{	if(halt)break;
-					htim4.Instance->PSC =rampa[i]; //El vector rampa está en calibracion
-					OSTimeDly(500);
-
-				}
-
+				halt=true;
+				OSTaskSuspend(APP_CFG_TASK5_PRIO); //Se autosuspende
 			}
 			else
 			{
-				if (htim4.Instance->PSC == 0)
-				{
-					for(int i = 9; i>=0 ;i--)
-					{
-						if(halt)break;
-						htim4.Instance->PSC =rampa[i];
-						OSTimeDly(500);
-
-					}
-				}
+				if(HAL_GPIO_ReadPin(GPIOB, Fc_Sup_Pin))
+						{
+							halt=true;
+							OSTaskSuspend(APP_CFG_TASK5_PRIO); //Se autosuspende
+						}
 			}
-			OSTaskSuspend(APP_CFG_TASK5_PRIO); //Se autosuspende
+			OSTimeDly(2);
 		}
 }
 
@@ -536,9 +540,30 @@ static void Rampa (void *p_arg)
 
 static void Piezas (void *p_arg)
 {
+	bool mismaPieza = false; // Para leer solo flanco ascendente
 
 	while(DEF_TRUE)
 		{
+		OSTimeDly(50);
+		if(!mismaPieza && HAL_GPIO_ReadPin(GPIOB, Sensor_rejillas_Pin) && !rejillasReady)
+		{
+			rejillasActuales ++;
+			mismaPieza = true;
+		}
+		else
+		{
+			if (mismaPieza && ! HAL_GPIO_ReadPin(GPIOB, Sensor_rejillas_Pin))
+			{
+				mismaPieza = false; //Flanco descendente
+			}
+		}
+
+		if (rejillasActuales >= nRejillas)
+		{
+			rejillasReady = true;
+			rejillasActuales =0;
+		}
+
 
 
 		}
@@ -554,21 +579,32 @@ static void Piezas (void *p_arg)
  *
  * PRIMER MEDIO CICLO: CICLO DE SUBIDA
  * Arranca si el sistema se encuentra en start y el final de carrera inferior está activo
- * Comienza con una rampa de aceleración y se mantiene a velocidad constante hasta que
- * se termina el tiempo calculado. Luego realiza una desaceleración hasta encontrar el
- * final de carrera superior, donde se detiene durante x tiempo.
+ * 1/4 del recorrido lo realiza a baja velocidad. 2/4 a alta velocidad y el ultimo tramo
+ * a baja velocidad nuevamente. Superada la distancia calculada sigue avanzando a baja
+ * velocidad con el objetivo de encontrar el final de carrera. si no lo encuentra lanza
+ *  un error
  *
  * SEGUNDO MEDIO CICLO: CICLO DE BAJADA
- * Realiza exactamente lo mismo pero en dirección opuesta y hasta que encuentra el final
- * de carrera inferior. Si no lo encuentra significa que se han perdido pasos y se debe
- * mover manualmente el elevador
+* Arranca si el sistema se encuentra en start y el final de carrera superior está activo
+ * 1/4 del recorrido lo realiza a baja velocidad. 2/4 a alta velocidad y el ultimo tramo
+ * a baja velocidad nuevamente. Superada la distancia calculada sigue avanzando a baja
+ * velocidad con el objetivo de encontrar el final de carrera. si no lo encuentra lanza
+ *  un error
  *
  ****************************************************************************************/
 
 void CicloAutomatico()
 {
-	float delay_ms = ((distancia_mm / desplazamientoXrev ) * pulsosXrev ) / 2000; // Calculo delay
-
+	/****************** CALCULOS ********************
+	*Según la distancia que se desea recorrer, se necesitan x cantidad de pulsos enviados
+	*Se envia 2 khz para velocidad max y 1 khz para velocidad min
+	*
+	**/
+	const float delay_ms = ((distancia_mm / desplazamientoXrev ) * pulsosXrev ) / 2000; // Calculo delay
+	const float tiempo2khz = delay_ms / 2;
+	const float tiempo1khz = (delay_ms / 4) * 2;
+	/****************** CALCULOS ********************/
+	/****************** Reset Errores ********************/
 	if (HAL_GPIO_ReadPin(GPIOB, Fc_Inf_Pin) && (errorTimeoutInf || errorTimeoutSup)) //Reset errores FC
 	{
 		errorTimeoutInf = false;
@@ -576,17 +612,23 @@ void CicloAutomatico()
 		OSTaskResume(APP_CFG_TASK2_PRIO); 		//Resume la tarea display
 
 	}
+	/****************** Reset Errores ********************/
 
-		/********************** CICLO DE SUBIDA ***********************************/
+	/********************** CICLO DE SUBIDA ***********************************/
 	if(start && HAL_GPIO_ReadPin(GPIOB, Fc_Inf_Pin))//if start y Fc inferior
 	{
 
-		htim4.Instance->PSC = 10;					//setea el motor a velocidad minima
-		OSTaskResume(APP_CFG_TASK5_PRIO); 			//Inicia la trea de la rampa para acelerar
+		htim4.Instance->PSC = 1;					//Preescaler motor = 1.El motor recibe 1khz
 		GiroHorario();
-		OSTimeDly((uint32_t)delay_ms);				//Espera que termine el tiempo calculado
+		OSTimeDly((uint32_t)tiempo1khz);			//Recorre 1/4 tramo a baja velocidad
+		OSTaskResume(APP_CFG_TASK5_PRIO); 			//Resume la tarea Finales de Carrera
 		if (!start) return;							//Si se interrumpe la marcha
-		OSTaskResume(APP_CFG_TASK5_PRIO); 			//Inicia la trea de la rampa para desacelerar
+		htim4.Instance->PSC = 0;					//Preescaler motor = 0.El motor recibe 2khz
+		OSTimeDly((uint32_t)tiempo2khz);			//Recorre 2/4 tramo a alta velocidad
+		if (!start) return;
+		htim4.Instance->PSC = 1;
+		OSTimeDly((uint32_t)tiempo1khz);			//Recorre 1/4 tramo a baja velocidad
+		if (!start) return;
 
 
 		OSTimeDly(timeout_Fc_Sup);					//Timeout FC superior
@@ -607,13 +649,17 @@ void CicloAutomatico()
 	/********************** CICLO DE BAJADA ***********************************/
 	if(start && HAL_GPIO_ReadPin(GPIOB, Fc_Sup_Pin))//if start y Fc superior
 	{
-		htim4.Instance->PSC = 10;					//setea el motor a velocidad minima
-		OSTaskResume(APP_CFG_TASK5_PRIO); 			//Inicia la tarea de la rampa para acelerar
+		htim4.Instance->PSC = 1;					//Preescaler motor = 1.El motor recibe 1khz
 		GiroAntiHorario();
-		OSTimeDly((uint32_t)delay_ms);				//Espera que termine el tiempo calculado
+		OSTimeDly((uint32_t)tiempo1khz);			//Recorre 1/4 tramo a baja velocidad
+		OSTaskResume(APP_CFG_TASK5_PRIO); 			//Resume la tarea Finales de Carrera
+		if (!start) return;							//Si se interrumpe la marcha
+		htim4.Instance->PSC = 0;					//Preescaler motor = 0.El motor recibe 2khz
+		OSTimeDly((uint32_t)tiempo2khz);			//Recorre 2/4 tramo a alta velocidad
 		if (!start) return;
-		OSTaskResume(APP_CFG_TASK5_PRIO); 			//Inicia la trea de la rampa para desacelerar
-
+		htim4.Instance->PSC = 1;
+		OSTimeDly((uint32_t)tiempo1khz);			//Recorre 1/4 tramo a baja velocidad
+		if (!start) return;
 
 		OSTimeDly(timeout_Fc_Inf);					//Timeout FC inferior
 		halt = true;

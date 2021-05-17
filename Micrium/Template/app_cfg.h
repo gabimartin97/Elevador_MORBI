@@ -62,8 +62,8 @@
 #define APP_CFG_TASK2_PRIO					14u		//Display
 #define APP_CFG_TASK3_PRIO					13u		//Motor
 #define APP_CFG_TASK4_PRIO					9u		//Detener
-#define APP_CFG_TASK5_PRIO					15u		//Rampa
-#define APP_CFG_TASK6_PRIO					11u		//Sensor piezas
+#define APP_CFG_TASK5_PRIO					11u		//Finales de carrera
+#define APP_CFG_TASK6_PRIO					12u		//Sensor piezas
 #define  OS_TASK_TMR_PRIO                  (OS_LOWEST_PRIO - 2u)
 
 

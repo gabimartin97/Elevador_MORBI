@@ -504,7 +504,7 @@ static void App_Task5Create (void)
 {
 	CPU_INT08U os_err;
 
-	os_err = OSTaskCreateExt((void (*)(void *)) Rampa,
+	os_err = OSTaskCreateExt((void (*)(void *)) FinalesDeCarrera,
 							 (void			* )0,
 							 (OS_STK		* )&Task5Stk[APP_CFG_TASK5_STK_SIZE - 1],
 							 (INT8U			  ) APP_CFG_TASK5_PRIO,
@@ -514,7 +514,7 @@ static void App_Task5Create (void)
 							 (void			* )0,
 							 (INT16U		  )(OS_TASK_OPT_STK_CLR | OS_TASK_OPT_STK_CHK));
 
-	OSTaskNameSet(APP_CFG_TASK5_PRIO, (unsigned char *)"Rampa", &os_err);
+	OSTaskNameSet(APP_CFG_TASK5_PRIO, (unsigned char *)"FC", &os_err);
 }
 
 static void App_Task6Create (void)
