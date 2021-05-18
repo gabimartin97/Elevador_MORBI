@@ -46,14 +46,22 @@ uint16_t distancia_mm = 3000;		//Distancia linear default que debe recorrer el e
 uint16_t velMAX_RPM = 500;			//Estas variables todavía no se utilizan
 uint16_t velMIN_RPM = 50;			//Estas variables todavía no se utilizan
 
+/****CONTRASEÑA****/
+bool accesoPermitido = false;
+uint8_t digit0 =0;
+uint8_t digit1 =0;
+uint8_t digit2 =0;
+uint8_t digit3 =0;
+uint8_t contrasena[4] = {1,2,3,4};
+uint8_t puntero=0;		// Variable que sirve para modificar cada digito de la constraseña
+/****CONTRASEÑA****/
 typedef enum
 {
 	ModoAut,
 	ModoMan,
+	Password,
 	CantRejillas,
 	Desplazamiento,
-	VelMax,
-	VelMin,
 	count
 }menu;				//Los estados que tiene el menú del LCD
 
@@ -71,6 +79,7 @@ menu menuState;		//Los estados que tiene el menú del LCD
 void GiroHorario();
 void GiroAntiHorario();
 void CicloAutomatico();		//Esta funcion controla el modo automático del elevador
+void ResetPassword();		//resetea la contraseña ingresada
 /***************************************************************
  *							Prototipo funciones
  **************************************************************/
@@ -104,12 +113,33 @@ static void LecturaPulsadores (void *p_arg)
 		/***************************PULSADOR MENU **************************************/
 		if(HAL_GPIO_ReadPin(GPIOB, PULSADOR1_Pin) == GPIO_PIN_RESET && !start)
 		{
-			menuState++;
-			if (menuState == count)
+			if (menuState != Password)
 			{
-				menuState = ModoAut;				//El menú es circular
+				menuState++;
+
+				if (menuState == count)
+				{
+					menuState = ModoAut;				//El menú es circular
+					ResetPassword();					//reinicio la contraseña
+				}
+				OSTaskResume(APP_CFG_TASK2_PRIO); 		//Resume la tarea display
 			}
-			OSTaskResume(APP_CFG_TASK2_PRIO); 		//Resume la tarea display
+			else		//Menu Password
+			{
+				puntero++;
+				if (puntero >= 4)
+				{
+					puntero =0;
+					menuState++;
+					if (menuState == CantRejillas && !accesoPermitido)	//Bloqueo acceso a config
+					{
+						menuState = ModoAut;		//Vuelve al inicio
+						ResetPassword();
+					}
+				}
+				OSTaskResume(APP_CFG_TASK2_PRIO); 		//Resume la tarea display
+			}
+
 			OSTimeDlyHMSM(0, 0, 0, 400u);			//Delay luego de pulsarlo
 
 		}
@@ -135,6 +165,32 @@ static void LecturaPulsadores (void *p_arg)
 					  			giroAntiHorario = false;
 					  		}
 					  		break;
+					  	case Password:
+					  	{
+					  		switch(puntero)
+					  		{
+					  		case 0:
+					  			digit0++;
+					  			if(digit0 >= 10) digit0 = 0;
+					  			break;
+					  		case 1:
+					  			digit1++;
+					  			if(digit1 >= 10) digit1 = 0;
+					  			break;
+					  		case 2:
+					  			digit2++;
+					  			if(digit2 >= 10) digit2 = 0;
+					  			break;
+					  		case 3:
+					  			digit3++;
+					  			if(digit3 >= 10) digit3 = 0;
+					  			break;
+					  		default:
+					  			break;
+					  		}
+					  	}
+
+					  		break;
 
 
 					  	case CantRejillas:			//Si display muestra cant de rejillas:
@@ -151,7 +207,7 @@ static void LecturaPulsadores (void *p_arg)
 					  			distancia_mm ++;
 					  		}
 					  		break;
-
+/*
 					  	case VelMax:				//Si display muestra velocidad maxima:
 					  		if (velMAX_RPM < 65535)
 					  		{
@@ -165,7 +221,7 @@ static void LecturaPulsadores (void *p_arg)
 					  			velMIN_RPM++;
 					  		}
 					  		break;
-
+*/
 					  	case count:					//Este estado no debería darse
 					  		break;
 
@@ -203,7 +259,27 @@ static void LecturaPulsadores (void *p_arg)
 									giroAntiHorario = false;
 								}
 								break;
-
+						  	case Password:
+						  	{
+						  		switch(puntero)
+						  		{
+						  		case 0:
+						  			if(digit0 > 0) digit0--;
+						  			break;
+						  		case 1:
+						  			if(digit1 > 0) digit1--;
+						  			break;
+						  		case 2:
+						  			if(digit2 > 0) digit2--;
+						  			break;
+						  		case 3:
+						  			if(digit3 > 0) digit3--;
+						  			break;
+						  		default:
+						  			break;
+						  		}
+						  	}
+						  	break;
 
 							case CantRejillas:		//Si display muestra cantidad de rejillas:
 								if (nRejillas > 0)
@@ -218,7 +294,7 @@ static void LecturaPulsadores (void *p_arg)
 									distancia_mm --;
 								}
 								break;
-
+/*
 							case VelMax:			//Si display muestra velocidad maxima:
 								if (velMAX_RPM > 0)
 								{
@@ -232,7 +308,7 @@ static void LecturaPulsadores (void *p_arg)
 									velMIN_RPM--;
 								}
 								break;
-
+*/
 							case count:			//Este estado no deberia darse:
 								break;
 
@@ -269,6 +345,25 @@ static void LecturaPulsadores (void *p_arg)
 				{
 					halt = true;
 					OSTimeDlyResume(APP_CFG_TASK3_PRIO); //Le quita los delay a la tarea del motor
+				}
+				OSTaskResume(APP_CFG_TASK2_PRIO); 		//Resume la tarea display
+				OSTimeDlyHMSM(0, 0, 0, 400u);			//Delay luego de pulsarlo
+			}
+			else
+			{
+				if (menuState == Password)				//Pulso start para validad la contraseña
+				{
+					if(digit0 == contrasena[0] && digit1 == contrasena[1] &&
+					   digit2 == contrasena[2] && digit3 == contrasena[3] 	)
+					{
+						accesoPermitido = true;
+						puntero=0;
+						menuState ++;
+					}
+					else
+					{
+						ResetPassword();
+					}
 				}
 				OSTaskResume(APP_CFG_TASK2_PRIO); 		//Resume la tarea display
 				OSTimeDlyHMSM(0, 0, 0, 400u);			//Delay luego de pulsarlo
@@ -312,7 +407,7 @@ static void ActualizarDisplay (void *p_arg)
 	  {
 		  	clear();
 		  	setCursor(0,0);
-		  	char buffer[5];			//Este buffer contiene los números de los parametros
+		  	char buffer[15];			//Este buffer contiene los números de los parametros
 
 		  	switch(menuState)
 		  	{
@@ -348,6 +443,17 @@ static void ActualizarDisplay (void *p_arg)
 		  		print("Modo Manual");
 
 		  		break;
+
+		  	case Password:
+		  		print("Clave de acceso");
+		  		setCursor(0,1);
+		  		sprintf(buffer,"%d %d %d %d",digit0,digit1,digit2,digit3);
+		  		print(buffer);
+
+		  		setCursor((puntero *2) + 1,1);
+		  		print("<");
+		  		break;
+
 		  	case CantRejillas:
 
 		  		print("Cant de Piezas");
@@ -363,6 +469,8 @@ static void ActualizarDisplay (void *p_arg)
 		  		print(buffer);
 		  		break;
 
+
+/*
 		  	case VelMax:
 		  		print("RPM motor Max");
 		  		setCursor(0,1);
@@ -376,7 +484,7 @@ static void ActualizarDisplay (void *p_arg)
 		  		sprintf(buffer,"%d",velMIN_RPM);
 		  		print(buffer);
 		  		break;
-
+*/
 		  	case count:
 		  		break;
 
@@ -708,5 +816,13 @@ void GiroAntiHorario()
 	HAL_GPIO_WritePin(GPIOB, DIR_Pin, GPIO_PIN_SET); 		//GIRO PA OTRO LADO
 	OSTimeDlyHMSM(0, 0, 0, 1u);
 	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
+}
+void ResetPassword()
+{
+	digit0 = 0;
+	digit1 = 0;
+	digit2 = 0;
+	digit3 = 0;
+	accesoPermitido = false;
 }
 
